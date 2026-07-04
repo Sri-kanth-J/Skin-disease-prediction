@@ -91,6 +91,13 @@ The model is especially good at detecting Melanoma (99% F1) and Healthy skin (99
 
 TensorFlow 2.20+ only supports GPU on Linux/WSL2. If you're on native Windows, you'll need to use CPU or an older TensorFlow version.
 
+### Technical Model Specifications
+* **Architecture:** EfficientNetV2S (Pre-trained on ImageNet, Fine-tuned top 150 layers)
+* **Input Resolution:** `224 x 224` pixels
+* **Color Channels:** 3 (RGB)
+* **Preprocessing:** The model handles normalization internally (`include_preprocessing=True`). It expects raw image tensors with pixel values in the standard `[0, 255]` range, eliminating the need for external standardization scripts during inference.
+* **Precision:** Trained utilizing mixed-precision (`float16`) to maximize VRAM efficiency on consumer-grade hardware.
+
 ## Common Issues
 
 **"GPU not found"**
