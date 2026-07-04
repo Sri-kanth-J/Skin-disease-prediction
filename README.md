@@ -119,8 +119,19 @@ TensorFlow 2.20+ only supports GPU on Linux/WSL2. If you're on native Windows, y
 4. **Learning rate** — starts low, warms up, then slowly decays (cosine schedule)
 5. **Class balancing** — weights rare classes higher so the model doesn't just predict the common ones
 
+### Supported Classes (7-Class Model)
+This model was trained on a balanced subset of 7 specific skin conditions to maximize accuracy and reduce class imbalance. 
+
+The network is capable of classifying the following conditions:
+1. **Basal cell carcinoma**
+2. **Benign keratosis** 
+3. **Healthy** (No visible disease)
+4. **HFMD** (Hand, Foot, and Mouth Disease)
+5. **Melanocytic nevi**
+6. **Melanoma** 
+7. **Monkeypox** 
+
 The model expects raw images (0-255 pixel values) and handles normalization internally.
 
 ---
 
-Built with TensorFlow, Flask, and way too much coffee.

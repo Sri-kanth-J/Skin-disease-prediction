@@ -79,8 +79,8 @@ class SkinClassifier:
         self.data_dir = Path(data_dir).resolve()
         self.input_shape = input_shape
         self.batch_size = 32        # safe for WSL2 NTFS mounts with limited RAM
-        self.phase1_epochs = 40     # transfer learning
-        self.phase2_epochs = 30     # fine-tuning
+        self.phase1_epochs = 35     # transfer learning
+        self.phase2_epochs = 45     # fine-tuning
 
     # ------------------------------------------------------------------
     # Dataset helpers
@@ -153,12 +153,12 @@ class SkinClassifier:
     # ------------------------------------------------------------------
     def _build_augmentation(self):
         return tf.keras.Sequential([
-            layers.RandomFlip("horizontal"),
-            layers.RandomRotation(0.12),           # ±15 degrees
+            layers.RandomFlip("horizontal_and_vertical"), # Skin lesions can appear at any rotation/orientation
+            layers.RandomRotation(0.20),                 # Higher rotation freedom
             layers.RandomZoom((-0.15, 0.15)),
-            layers.RandomTranslation(0.10, 0.10),
-            layers.RandomBrightness(0.2),          # ±20% brightness
-            layers.RandomContrast(0.2),
+            layers.RandomTranslation(0.15, 0.15),
+            layers.RandomBrightness(0.25),                # Robustness against inconsistent clinical lighting
+            layers.RandomContrast(0.25),
         ], name="augmentation")
 
     # ------------------------------------------------------------------
@@ -193,17 +193,15 @@ class SkinClassifier:
         )
 
         aug = self._build_augmentation()
-
         train_ds = (
             train_ds_raw
-            .map(lambda x, y: (aug(x, training=True), y), num_parallel_calls=2)
-            .prefetch(2)  # fixed buffer — prevents RAM overcommit on WSL2/NTFS
+            .map(lambda x, y: (aug(x, training=True), y), num_parallel_calls=tf.data.AUTOTUNE)
+            .prefetch(4)  # Hard bound to 4 instead of AUTOTUNE to prevent OOM memory leaks in WSL2
         )
-        val_ds = val_ds_raw.prefetch(2)
+        val_ds = val_ds_raw.prefetch(4)
 
         train_counts = self._count_class_samples("train", class_names)
-        val_counts   = self._count_class_samples("val",   class_names)
-
+        val_counts = self._count_class_samples("val", class_names)
         # Load human-readable names from dataset if available
         human_names = None
         for names_path in [Path("dataset") / "class_names.json", Path("models") / "class_names.json"]:
@@ -229,9 +227,6 @@ class SkinClassifier:
     # Model
     # ------------------------------------------------------------------
     def build_model(self, num_classes):
-        print("\nBuilding EfficientNetV2S model...")
-
-        # EfficientNetV2S with include_preprocessing=True handles [0,255] → [-1,1]
         backbone = EfficientNetV2S(
             input_shape=self.input_shape,
             include_top=False,
@@ -243,17 +238,16 @@ class SkinClassifier:
         inputs = Input(shape=self.input_shape)
         x = backbone(inputs, training=False)
 
-        # Classification head
+        # Robust classification head
         x = layers.GlobalAveragePooling2D()(x)
         x = layers.BatchNormalization()(x)
         x = layers.Dropout(0.4)(x)
         x = layers.Dense(
-            512, activation="relu",
-            kernel_regularizer=regularizers.l2(5e-4),
+            512, activation="swish",  # Swish matches EfficientNet internals better than ReLU
+            kernel_regularizer=regularizers.l2(1e-4),
         )(x)
         x = layers.BatchNormalization()(x)
         x = layers.Dropout(0.3)(x)
-        # float32 output required by mixed precision
         outputs = layers.Dense(num_classes, activation="softmax", dtype="float32")(x)
 
         model = Model(inputs, outputs)
@@ -277,16 +271,15 @@ class SkinClassifier:
             return None
 
         weights = compute_class_weight("balanced", classes=np.unique(all_labels), y=all_labels)
-        # Soft cap at 8.0 to prevent extreme instability on tiny classes
-        weights = np.clip(weights, 0.5, 8.0)
+        weights = np.clip(weights, 0.5, 6.0) # Adjusted soft cap slightly for structural security
         cw = dict(enumerate(weights))
         print(f"  Balance ratio {ratio:.1f}:1 → class weights: "
               + ", ".join(f"cls{k}={v:.2f}" for k, v in cw.items()))
         return cw
-
     # ------------------------------------------------------------------
     # Training
     # ------------------------------------------------------------------
+        # ------------------------------------------------------------------
     def train(self):
         train_ds, val_ds, class_names, num_classes, train_counts = self.load_data()
         model, backbone = self.build_model(num_classes)
@@ -297,92 +290,95 @@ class SkinClassifier:
         total_train = sum(train_counts.values())
         steps_per_epoch = math.ceil(total_train / self.batch_size)
 
-        # ── Phase 1: frozen backbone ─────────────────────────────────
+        # ── Phase 1: Frozen backbone ─────────────────────────────────
         print("\n=== Phase 1: Transfer learning (backbone frozen) ===")
 
         p1_total_steps = steps_per_epoch * self.phase1_epochs
-        p1_warmup      = steps_per_epoch * 3          # 3 warm-up epochs
-        schedule_p1    = WarmupCosineDecay(
-            peak_lr=3e-3, total_steps=p1_total_steps,
-            warmup_steps=p1_warmup, min_lr=1e-6
+        p1_warmup = steps_per_epoch * 3
+        schedule_p1 = WarmupCosineDecay(
+        peak_lr=1e-3, total_steps=p1_total_steps,  # Reduced from 3e-3 for better early stability
+        warmup_steps=p1_warmup, min_lr=1e-6
         )
         optimizer_p1 = AdamW(learning_rate=schedule_p1, weight_decay=1e-4)
 
         model.compile(
-            optimizer=optimizer_p1,
-            loss=tf.keras.losses.CategoricalCrossentropy(label_smoothing=0.1),
-            metrics=["accuracy"],
+        optimizer=optimizer_p1,
+        loss=tf.keras.losses.CategoricalCrossentropy(label_smoothing=0.1),
+        metrics=["accuracy"],
         )
 
         ckpt_p1 = "models/checkpoints/efficientnetv2s_transfer.keras"
         cbs_p1 = [
-            EarlyStopping(
-                monitor="val_accuracy", patience=12,
-                restore_best_weights=True, verbose=1,
-            ),
-            ModelCheckpoint(
-                ckpt_p1, monitor="val_accuracy", mode="max",
-                save_best_only=True, verbose=1,
-            ),
+        EarlyStopping(
+        monitor="val_accuracy", patience=10,
+        restore_best_weights=True, verbose=1,
+        ),
+        ModelCheckpoint(
+        ckpt_p1, monitor="val_accuracy", mode="max",
+        save_best_only=True, verbose=1,
+        ),
         ]
 
         model.fit(
-            train_ds,
-            epochs=self.phase1_epochs,
-            validation_data=val_ds,
-            callbacks=cbs_p1,
-            class_weight=class_weight_dict,
-            verbose=1,
+             train_ds,
+             epochs=self.phase1_epochs,
+             validation_data=val_ds,
+             callbacks=cbs_p1,
+             class_weight=class_weight_dict,
+             verbose=1,
         )
         print(f"  Best phase-1 model saved to {ckpt_p1}")
 
-        # ── Phase 2: unfreeze top layers ────────────────────────────
-        print("\n=== Phase 2: Fine-tuning (top 100 backbone layers) ===")
+        # ── Phase 2: Fine-tuning ────────────────────────────────────
+        print("\n=== Phase 2: Fine-tuning (top 150 backbone layers unfrozen) ===")
         backbone.trainable = True
-        freeze_until = max(0, len(backbone.layers) - 100)
+        # Unfreeze top 150 layers to give the model room to capture specialized skin lesion semantics
+        freeze_until = max(0, len(backbone.layers) - 150)
+
         for layer in backbone.layers[:freeze_until]:
-            # Keep BatchNorm frozen to avoid corrupting pretrained stats
+           layer.trainable = False
+
+        for layer in backbone.layers[freeze_until:]:
+                # Keep BatchNorm stats protected to prevent degradation of pre-trained parameters
             if isinstance(layer, layers.BatchNormalization):
                 layer.trainable = False
             else:
-                layer.trainable = False
-        # Re-explicitly unfreeze the last 100
-        for layer in backbone.layers[freeze_until:]:
-            layer.trainable = True
-
+                layer.trainable = True
         p2_total_steps = steps_per_epoch * self.phase2_epochs
-        p2_warmup      = steps_per_epoch * 2
-        schedule_p2    = WarmupCosineDecay(
-            peak_lr=5e-5, total_steps=p2_total_steps,
+        p2_warmup = steps_per_epoch * 3  # Increased warmup for structural normalization safety
+        schedule_p2 = WarmupCosineDecay(
+            peak_lr=4e-5, total_steps=p2_total_steps,
             warmup_steps=p2_warmup, min_lr=1e-7
-        )
-        optimizer_p2 = AdamW(learning_rate=schedule_p2, weight_decay=1e-4)
+            )
+        optimizer_p2 = AdamW(learning_rate=schedule_p2,
+            weight_decay=1e-3)  # Raised weight decay to combat overfitting
 
         model.compile(
-            optimizer=optimizer_p2,
-            loss=tf.keras.losses.CategoricalCrossentropy(label_smoothing=0.05),
-            metrics=["accuracy"],
-        )
+                optimizer=optimizer_p2,
+                loss=tf.keras.losses.CategoricalCrossentropy(label_smoothing=0.05),
+                metrics=["accuracy"],
+            )
 
         ckpt_p2 = "models/checkpoints/efficientnetv2s_finetuned.keras"
         cbs_p2 = [
-            EarlyStopping(
-                monitor="val_accuracy", patience=10,
-                restore_best_weights=True, verbose=1,
-            ),
-            ModelCheckpoint(
-                ckpt_p2, monitor="val_accuracy", mode="max",
-                save_best_only=True, verbose=1,
-            ),
-        ]
+                EarlyStopping(
+                    monitor="val_accuracy", patience=12,
+                    # Extended patience to give the deeper networks room to converge
+                    restore_best_weights=True, verbose=1,
+                ),
+               ModelCheckpoint(
+                    ckpt_p2, monitor="val_accuracy", mode="max",
+                    save_best_only=True, verbose=1,
+                ),
+            ]
 
         model.fit(
-            train_ds,
-            epochs=self.phase2_epochs,
-            validation_data=val_ds,
-            callbacks=cbs_p2,
-            class_weight=class_weight_dict,
-            verbose=1,
+                train_ds,
+                epochs=self.phase2_epochs,
+                validation_data=val_ds,
+                callbacks=cbs_p2,
+                class_weight=class_weight_dict,
+                verbose=1,
         )
         print(f"  Best phase-2 model saved to {ckpt_p2}")
 
@@ -390,10 +386,9 @@ class SkinClassifier:
         print("\nTraining complete. Final model saved to models/gpu_trained_model.keras")
         return model
 
-
-# ---------------------------------------------------------------------------
-# Entry point
-# ---------------------------------------------------------------------------
+    # ---------------------------------------------------------------------------
+    # Entry point
+    # ---------------------------------------------------------------------------
 if __name__ == "__main__":
     setup_gpu()
 

@@ -43,9 +43,8 @@ venv.bak/
 *.h5
 *.pkl
 *.pickle
-*.joblib
-checkpoints/
 *.keras
+*.joblib
 *.weights
 *.index
 *.data-*
