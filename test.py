@@ -1,8 +1,3 @@
-"""
-Test Script for Balanced Dataset
-Compatible with EfficientNetV2S (include_preprocessing=True, expects [0,255] input).
-WSL2 Ubuntu 22.04 / Linux optimized.
-"""
 import os
 os.environ.setdefault("TF_ENABLE_ONEDNN_OPTS", "0")
 os.environ.setdefault("TF_CPP_MIN_LOG_LEVEL", "1")
@@ -23,11 +18,11 @@ class ModelTester:
     def __init__(self, model_path=None, dataset_path=None):
         self.model_path = (
             Path(model_path).resolve() if model_path
-            else SCRIPT_DIR / "models" / "checkpoints" / "efficientnetv2s_finetuned.keras"
+            else SCRIPT_DIR / "models" / "checkpoints" / "mobilenetv3_finetuned.keras"
         )
         self.dataset_path = (
             Path(dataset_path).resolve() if dataset_path
-            else SCRIPT_DIR / "balanced_dataset" / "test"
+            else SCRIPT_DIR / "datasets" / "val"
         )
         self.input_shape = (224, 224)
         self.batch_size = 32
@@ -56,7 +51,7 @@ class ModelTester:
             raise FileNotFoundError("Run train.py first to create the model.")
         if not self.dataset_path.exists():
             raise FileNotFoundError(
-                f"Test data not found at {self.dataset_path}. Run simple_rebalance.py first."
+                f"Test data not found at {self.dataset_path}. Run train.py first."
             )
 
         print(f"Loading model: {self.model_path}")
@@ -65,9 +60,7 @@ class ModelTester:
         mapped_classes = self._load_class_mapping()
         print(f"Class order: {mapped_classes}")
 
-        # EfficientNetV2S has include_preprocessing=True — pass raw [0,255] images.
-        # Do NOT rescale here; rescaling to [0,1] corrupts predictions.
-        test_ds = tf.keras.utils.image_dataset_from_directory(
+        raw_ds = tf.keras.utils.image_dataset_from_directory(
             str(self.dataset_path),
             labels="inferred",
             label_mode="categorical",
@@ -76,16 +69,20 @@ class ModelTester:
             batch_size=self.batch_size,
             shuffle=False,
         )
-        test_ds = test_ds.prefetch(2)
 
-        # Collect labels for sklearn metrics
+        val_batches = tf.data.experimental.cardinality(raw_ds).numpy()
+        split_idx = val_batches // 2
+
+        test_ds = raw_ds.skip(split_idx).prefetch(2)
+        print(f"📊 Isolated {val_batches - split_idx} holdout evaluation batches from validation directory.")
+        
         true_labels = np.concatenate([y.numpy() for _, y in test_ds], axis=0)
         true_classes = np.argmax(true_labels, axis=1)
 
         return model, test_ds, true_classes, mapped_classes
 
     def evaluate(self):
-        model, test_ds, true_classes, class_labels = self.load_model_and_data()        # attempt to load readable names
+        model, test_ds, true_classes, class_labels = self.load_model_and_data()
         names_path = SCRIPT_DIR / "models" / "class_names.json"
         human_names = None
         if names_path.exists():
@@ -93,11 +90,9 @@ class ModelTester:
                 human_names = json.load(open(names_path))
             except Exception:
                 human_names = None
-        # Per-class sample counts
         print("\nTest set distribution:")
         class_counts = {}
-        
-        # Helper to map folder name to disease name
+
         def get_disease_name(cls):
             if human_names:
                 folder_idx = int(cls) if cls.isdigit() else None
@@ -124,13 +119,12 @@ class ModelTester:
         weighted_f1 = f1_score(true_classes, predicted_classes, average='weighted')
         
         print("\n" + "="*60)
-        print(f"🎯 BALANCED DATASET TEST ACCURACY: {accuracy:.4f} ({accuracy*100:.1f}%)")
+        print(f"🎯  DATASET TEST ACCURACY: {accuracy:.4f} ({accuracy*100:.1f}%)")
         print(f"🎯 MACRO F1 SCORE: {macro_f1:.4f}")
         print(f"🎯 WEIGHTED F1 SCORE: {weighted_f1:.4f}")
         print("="*60)
         
-        # Per-class accuracy analysis
-        print("\n📋 PER-CLASS PERFORMANCE (Balanced Dataset):")
+        print("\n📋 PER-CLASS PERFORMANCE ( Dataset):")
         print("-" * 50)
         for i, class_name in enumerate(class_labels):
             class_mask = (true_classes == i)
@@ -142,9 +136,9 @@ class ModelTester:
                 print(f"   {status} Class {display_name}: {class_acc:.3f} ({class_count} samples)")
         
         print("\nDETAILED CLASSIFICATION REPORT:")
-        # Build display names for report
         report_names = [get_disease_name(cls) for cls in class_labels]
-        print(classification_report(true_classes, predicted_classes, target_names=report_names, zero_division=0))
+        report_labels = list(range(len(class_labels)))
+        print(classification_report(true_classes, predicted_classes, labels=report_labels, target_names=report_names, zero_division=0))
 
         self.plot_confusion_matrix(true_classes, predicted_classes, class_labels, get_disease_name)
 
@@ -163,8 +157,7 @@ class ModelTester:
             json.dump(metrics, f, indent=2)
         print(f"Metrics saved to {metrics_path}")
         
-        # Summary for balanced dataset
-        print(f"\n💡 BALANCED DATASET RESULTS SUMMARY:")
+        print(f"\n💡  DATASET RESULTS SUMMARY:")
         print(f"   • Total accuracy: {accuracy*100:.1f}%")
         print(f"   • Macro F1: {macro_f1:.3f}")
         print(f"   • Test set balance: {balance_ratio:.1f}:1")
@@ -172,20 +165,19 @@ class ModelTester:
         print(f"   • Total test samples: {len(true_classes)}")
         
         if accuracy > 0.8:
-            print("   🏆 Excellent performance! Balanced dataset worked well.")
+            print("   🏆 Excellent performance!  dataset worked well.")
         elif accuracy > 0.6:
-            print("   ✅ Good improvement with balanced dataset!")
+            print("   ✅ Good improvement with  dataset!")
         elif accuracy > 0.4:
-            print("   📈 Better than original imbalanced dataset.")
+            print("   📈 Better than original im dataset.")
         else:
             print("   ⚠️ Performance still low - check data quality.")
 
     def plot_confusion_matrix(self, true_classes, predicted_classes, class_labels, get_name_fn=None):
-        cm = confusion_matrix(true_classes, predicted_classes)
+        cm = confusion_matrix(true_classes, predicted_classes, labels=list(range(len(class_labels))))
         row_sums = cm.sum(axis=1, keepdims=True)
         cm_normalized = np.divide(cm, row_sums, where=row_sums != 0)
 
-        # Use human-readable names if available
         display_labels = [get_name_fn(c) if get_name_fn else c for c in class_labels]
 
         plt.figure(figsize=(12, 10))
@@ -208,16 +200,16 @@ class ModelTester:
         plt.ylabel("True", fontsize=11)
         plt.tight_layout()
 
-        out_path = SCRIPT_DIR / "models" / "balanced_confusion_matrix.png"
+        out_path = SCRIPT_DIR / "models" / "_confusion_matrix.png"
         plt.savefig(str(out_path), dpi=150, bbox_inches="tight")
         plt.close()
         print(f"Confusion matrix saved to {out_path}")
 
 if __name__ == "__main__":
-    print("Balanced Dataset Model Testing")
+    print(" Dataset Model Testing")
     print("=" * 60)
 
-    test_dir = SCRIPT_DIR / "balanced_dataset" / "test"
+    test_dir = SCRIPT_DIR / "datasets" / "val"
     if not test_dir.exists():
         print(f"Test data not found at {test_dir}")
         print("Run: python simple_rebalance.py")
@@ -227,4 +219,4 @@ if __name__ == "__main__":
     print(f"Model   : {tester.model_path}")
     print(f"Test dir: {tester.dataset_path}")
     tester.evaluate()
-    print("\nTesting complete. Check models/balanced_confusion_matrix.png for the confusion matrix.")
+    print("\nTesting complete. Check models/_confusion_matrix.png for the confusion matrix.")

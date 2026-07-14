@@ -1,9 +1,11 @@
 {
-  "0": "1",
-  "1": "10",
-  "2": "11",
-  "3": "2",
-  "4": "6",
-  "5": "7",
-  "6": "9"
+  "0": "Actinic keratosis",
+  "1": "Atopic Dermatitis",
+  "2": "Benign keratosis",
+  "3": "Dermatofibroma",
+  "4": "Melanocytic nevus",
+  "5": "Melanoma",
+  "6": "Squamous cell carcinoma",
+  "7": "Tinea Ringworm Candidiasis",
+  "8": "Vascular lesion"
 }

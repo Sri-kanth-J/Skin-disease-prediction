@@ -51,8 +51,8 @@ venv.bak/
 *.meta
 
 # Large image datasets and project directories
-dataset/
-balanced_dataset/
+datasets/
+datasetold/
 
 
 # Model and training artifacts

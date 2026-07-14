@@ -1,144 +1,126 @@
 # Skin Disease Classification
 
-Hey! This is a deep learning project that identifies skin diseases from photos. Upload an image of a skin lesion, and it'll tell you what it might be.
+This project is for learning image classification on skin disease pictures.
+It is not a medical tool.
+The model can make mistakes, so do not use it for diagnosis.
 
-**Current accuracy: 81.6%** on 7 different skin conditions.
+## What this project does
 
-## What It Does
+You upload a skin image and the app predicts the most likely skin condition.
+The current model uses 9 skin classes.
+I used this project to learn how to improve accuracy from the validation folder in the dataset.
 
-You give it a photo of a skin lesion, it tells you which of these conditions it most likely is:
+## The classes are
 
-- Basal cell carcinoma
-- Benign keratosis  
-- Dermatofibroma
-- Healthy skin
-- Measles
-- Melanocytic nevi (moles)
-- Melanoma
+Actinic keratosis
+Atopic Dermatitis
+Benign keratosis
+Dermatofibroma
+Melanocytic nevus
+Melanoma
+Squamous cell carcinoma
+Tinea Ringworm Candidiasis
+Vascular lesion
 
-The model uses EfficientNetV2S (a modern image classification network) trained in two phases — first learning general features, then fine-tuning specifically for skin lesions.
+## What to expect
 
-## Quick Start
+The accuracy is not fixed.
+It depends on the dataset quality, class balance, training settings, and whether TensorFlow can use the GPU in WSL.
+This project is mainly for learning and improving accuracy, not for real medical use.
 
-### 1. Set Up (WSL2 recommended on Windows)
+## Main files
 
-```bash
-# In WSL2 Ubuntu terminal
-cd /mnt/d/Code/Skin-disease-prediction
-python3 -m venv venv
-source venv/bin/activate
-pip install "tensorflow[and-cuda]"
-pip install -r requirements.txt
-```
+train.py trains the model
+test.py checks the model on the validation split
+app1.py runs the web app
+download_dataset.py downloads the dataset
+simple_rebalance.py helps balance the classes
 
-### 2. Get the Dataset
+## How the training works
 
-```bash
-python download_dataset.py
-python simple_rebalance.py
-```
+Training uses datasets/train
+Validation and testing are taken from datasets/val
+There is no separate test folder in the current setup
+The model uses MobileNetV3Large
+Images are used in raw form, so do not rescale them before training or inference
 
-### 3. Train the Model
+## Setup
 
-```bash
-python train.py
-```
+1. Open WSL2 on Windows
 
-Takes about 2-3 hours on an RTX 3060. The best model saves automatically.
 
-### 4. Test It
+2. Go to the project folder
 
-```bash
-python test.py
-```
+- bash
+  - cd /mnt/d/Code/Skin-disease-prediction
 
-### 5. Run the Web App
 
-```bash
-python app.py
-```
+3. Create and activate the virtual environment
 
-Then open http://localhost:5000 in your browser. Drag and drop a skin image to get predictions.
+- bash
+  - python3 -m venv venv
+  - source venv/bin/activate
 
-## Project Files
 
-| File | What it does |
-|------|--------------|
-| `train.py` | Trains the model (two-phase transfer learning) |
-| `test.py` | Evaluates model accuracy, saves confusion matrix |
-| `app.py` | Flask web app for predictions |
-| `download_dataset.py` | Downloads skin lesion images from Hugging Face |
-| `simple_rebalance.py` | Balances the dataset (some classes have way more images) |
+4. Install the packages
 
-See [structure.md](structure.md) for the full file layout.
+- bash
+  - pip install "tensorflow[and-cuda]"
+  - pip install -r requirements.txt
 
-## Results
 
-| Metric | Score |
-|--------|-------|
-| Overall accuracy | 81.6% |
-| Macro F1 | 0.827 |
-| Weighted F1 | 0.819 |
+If GPU is not detected
 
-The model is especially good at detecting Melanoma (99% F1) and Healthy skin (99% F1). It struggles a bit more with Benign keratosis (57% F1) which often looks similar to other conditions.
+Run this before training
 
-## Requirements
+- bash
+  - export LD_LIBRARY_PATH=$VIRTUAL_ENV/lib/python3.10/site-packages/nvidia/cublas/lib:$VIRTUAL_ENV/lib/python3.10/site-packages/nvidia/cudnn/lib:$VIRTUAL_ENV/lib/python3.10/site-packages/nvidia/cufft/lib:$VIRTUAL_ENV/lib/python3.10/site-packages/nvidia/curand/lib:$VIRTUAL_ENV/lib/python3.10/site-packages/nvidia/cusolver/lib:$VIRTUAL_ENV/lib/python3.10/site-packages/nvidia/cusparse/lib:$VIRTUAL_ENV/lib/python3.10/site-packages/nvidia/nccl/lib:$VIRTUAL_ENV/lib/python3.10/site-packages/nvidia/cuda_runtime/lib:$VIRTUAL_ENV/lib/python3.10/site-packages/nvidia/cuda_cupti/lib:$VIRTUAL_ENV/lib/python3.10/site-packages/nvidia/cuda_nvrtc/lib:$VIRTUAL_ENV/lib/python3.10/site-packages/nvidia/nvjitlink/lib:$LD_LIBRARY_PATH
 
-- **GPU**: NVIDIA with 4GB+ VRAM (trained on RTX 3060 Laptop)
-- **RAM**: 8GB minimum
-- **Python**: 3.10
-- **OS**: Ubuntu 22.04 (WSL2 works great on Windows)
 
-TensorFlow 2.20+ only supports GPU on Linux/WSL2. If you're on native Windows, you'll need to use CPU or an older TensorFlow version.
+## Dataset
 
-### Technical Model Specifications
-* **Architecture:** EfficientNetV2S (Pre-trained on ImageNet, Fine-tuned top 150 layers)
-* **Input Resolution:** `224 x 224` pixels
-* **Color Channels:** 3 (RGB)
-* **Preprocessing:** The model handles normalization internally (`include_preprocessing=True`). It expects raw image tensors with pixel values in the standard `[0, 255]` range, eliminating the need for external standardization scripts during inference.
-* **Precision:** Trained utilizing mixed-precision (`float16`) to maximize VRAM efficiency on consumer-grade hardware.
+Download the dataset with
 
-## Common Issues
+- bash
+  - python download_dataset.py
 
-**"GPU not found"**
-- Make sure you're in WSL2, not PowerShell
-- Check `nvidia-smi` works in WSL
-- Reinstall TensorFlow: `pip install "tensorflow[and-cuda]"`
 
-**"Out of memory"**  
-- Edit `train.py` and set `self.batch_size = 16`
 
-**"balanced_dataset not found"**
-- Run `python simple_rebalance.py` first
+Training
 
-**Slow training**
-- Move the project to WSL's native filesystem for 3-5x faster I/O:
-  ```bash
-  cp -r /mnt/d/Code/Skin-disease-prediction ~/skin-project
-  cd ~/skin-project
-  ```
+ - bash
+  - python train.py
 
-## How It Works
 
-1. **EfficientNetV2S backbone** — pretrained on ImageNet, already knows how to see textures, edges, and patterns
-2. **Phase 1** — freeze the backbone, train only the classification head (40 epochs)
-3. **Phase 2** — unfreeze top 100 layers, fine-tune everything together (30 epochs)
-4. **Learning rate** — starts low, warms up, then slowly decays (cosine schedule)
-5. **Class balancing** — weights rare classes higher so the model doesn't just predict the common ones
+The model trains in two phases. First it trains the new head. Then it fine tunes the top layers.
 
-### Supported Classes (7-Class Model)
-This model was trained on a balanced subset of 7 specific skin conditions to maximize accuracy and reduce class imbalance. 
+## Testing
 
-The network is capable of classifying the following conditions:
-1. **Basal cell carcinoma**
-2. **Benign keratosis** 
-3. **Healthy** (No visible disease)
-4. **HFMD** (Hand, Foot, and Mouth Disease)
-5. **Melanocytic nevi**
-6. **Melanoma** 
-7. **Monkeypox** 
+- bash
+  - python test.py
 
-The model expects raw images (0-255 pixel values) and handles normalization internally.
 
----
+This checks the model using the holdout part of the val folder and prints accuracy, macro F1, weighted F1, and the confusion matrix.
 
+## Web app
+
+- bash
+  - python app1.py
+
+
+Then open
+
+text
+http://localhost:5000
+
+
+The app shows the top prediction, the top 3 predictions, a confidence chart, and a short condition description.
+
+## Example workflow
+
+ - bash
+   - python download_dataset.py
+   - python simple_rebalance.py
+   - python train.py
+   - python test.py
+   - python app1.py

@@ -1,16 +1,18 @@
 {
-  "accuracy": 0.8230668414154653,
-  "macro_f1": 0.8388245506429615,
-  "weighted_f1": 0.8284094194474586,
-  "num_classes": 7,
-  "num_samples": 3815,
+  "accuracy": 0.7529411764705882,
+  "macro_f1": 0.4451349801959558,
+  "weighted_f1": 0.7790776097806227,
+  "num_classes": 9,
+  "num_samples": 85,
   "classes": [
-    "1",
-    "10",
-    "11",
-    "2",
-    "6",
-    "7",
-    "9"
+    "Actinic keratosis",
+    "Atopic Dermatitis",
+    "Benign keratosis",
+    "Dermatofibroma",
+    "Melanocytic nevus",
+    "Melanoma",
+    "Squamous cell carcinoma",
+    "Tinea Ringworm Candidiasis",
+    "Vascular lesion"
   ]
 }

@@ -18,7 +18,8 @@
 
 # numpy: TF 2.20 requires >=1.26; numpy 2.x is supported
 numpy>=1.26.0
-
+tensorflow[and-cuda]
+flask
 # Essential data processing
 matplotlib>=3.7.0
 Pillow>=9.4.0

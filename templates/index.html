@@ -20,7 +20,7 @@
     </div>
     <div class="header-text">
       <h1>Skin Disease Classifier</h1>
-      <p>AI-powered dermatology screening — EfficientNetV2S</p>
+      <p>AI-powered dermatology screening — MobileNetV3Large</p>
     </div>
     <div class="model-badge {% if not model_loaded %}badge-error{% endif %}">
       {% if model_loaded %}
@@ -75,11 +75,11 @@
     <div class="info-box">
       <h3>Model Details</h3>
       <table class="info-table">
-        <tr><td>Architecture</td><td><strong>EfficientNetV2S</strong></td></tr>
+        <tr><td>Architecture</td><td><strong>MobileNetV3Large</strong></td></tr>
         <tr><td>Input size</td><td><strong>224 × 224</strong></td></tr>
         <tr><td>Preprocessing</td><td><strong>Internal (no rescaling)</strong></td></tr>
         <tr><td>Optimizer</td><td><strong>AdamW + Cosine warmup</strong></td></tr>
-        <tr><td>Fine-tuned layers</td><td><strong>Top 100</strong></td></tr>
+        <tr><td>Fine-tuned layers</td><td><strong>Top 30</strong></td></tr>
         <tr><td>Test accuracy</td><td><strong>81.6 %</strong></td></tr>
         <tr><td>Macro F1</td><td><strong>0.827</strong></td></tr>
       </table>
@@ -139,7 +139,7 @@
 </main>
 
 <footer class="site-footer">
-  Skin Disease Classifier &nbsp;·&nbsp; EfficientNetV2S &nbsp;·&nbsp; 81.6% accuracy
+  Skin Disease Classifier &nbsp;·&nbsp; MobileNetV3Large &nbsp;·&nbsp; 81.6% accuracy
 </footer>
 
 <script src="{{ url_for('static', filename='js/main.js') }}"></script>
